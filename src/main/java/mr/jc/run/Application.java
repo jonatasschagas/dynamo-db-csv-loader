@@ -46,17 +46,19 @@ public class Application
 		String table = ns.getString("table");
 		String header = ns.getString("header");
 		Integer numberOfThreads = ns.getInt("threads");
-		List<String> fileNames = ns.<String> getList("file");
+		String directory = ns.getString("folder");
 		
-		logger.info("dynamo-db-loader --> table: " + table + ", threads: " + numberOfThreads + ", num. files: " + fileNames.size());
+		File[] listOfFiles = listFiles(directory); 
+		
+		logger.info("dynamo-db-loader --> table: " + table + ", threads: " + numberOfThreads + ", num. files: " + listOfFiles.length);
 		
 		initThreadPool(numberOfThreads);
 		
 		int recordsRead = 0;
-		for(String fileName : fileNames)
+		for(File file : listOfFiles)
 		{
-			File csvData = new File(fileName);
-			CSVParser parser = CSVParser.parse(csvData,Charset.defaultCharset(), CSVFormat.RFC4180.withHeader(header.split(",")));
+			CSVParser parser = CSVParser.parse(file,Charset.defaultCharset(), CSVFormat.RFC4180.withHeader(header.split(",")));
+			
 			for (CSVRecord csvRecord : parser) 
 			{
 				poolExecutor.execute(new DynamoDBPutTask(table,csvRecord.toMap()));
@@ -64,11 +66,12 @@ public class Application
 				
 				if(recordsRead % 500 == 0)
 				{
-					logger.info("file: " + fileName + ", " + recordsRead + " records have been processed.");
+					logger.info("file: " + file.getName() + ", " + recordsRead + " records have been processed.");
 				}
 				
 			}
-			logger.info("file: " + fileName + ", has been processed.");
+			logger.info("file: " + file.getName() + ", has been processed.");
+			file.delete();
 		}
 		
 		System.exit(0);
@@ -95,9 +98,10 @@ public class Application
         	.required(true)
         	.help("Headers of the csv in comma separated, ex: Key,City,Country,Date");
         
-        parser.addArgument("file")
-        	.nargs("*")
-        	.help("CSV dump file.");
+        parser.addArgument("-f","--folder")
+        	.type(String.class)
+        	.required(true)	
+        	.help("Directory of the CSVs.");
         
         Namespace ns = null;
         try 
@@ -113,6 +117,11 @@ public class Application
         return ns;
 	}
 	
+	private static File[] listFiles(String directory)
+	{
+		File folder = new File(directory);
+		return folder.listFiles();
+	}
 	private static void initThreadPool(int corePoolSize)
 	{
 		poolExecutor = new NotifyingBlockingThreadPoolExecutor(corePoolSize, corePoolSize, KEEP_ALIVE_TIME, TimeUnit.SECONDS, BLOCKING_TIMEOUT, TimeUnit.SECONDS, new Callable<Boolean>() {
